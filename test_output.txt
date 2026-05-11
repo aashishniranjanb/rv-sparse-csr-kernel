@@ -1,13 +1,33 @@
-Starting sparse matrix-vector multiplication...
+===== RV-Sparse CSR Kernel =====
 
-Result y = A * x:
-y[0] = 13.00
-y[1] = 0.00
-y[2] = 21.00
-y[3] = 20.00
+Input Matrix Dimensions : 3 x 4
+Total Elements          : 12
+Non-Zero Elements       : 6
+Matrix Sparsity         : 50.00%
 
-Expected y:
-y[0] = 13.00
-y[1] = 0.00
-y[2] = 21.00
-y[3] = 20.00
+===== CSR Data =====
+
+Values      : [1 2 3 4 5 6]
+Column IDX  : [0 3 2 0 2 3]
+Row PTR     : [0 2 3 6]
+
+===== Sparse Matrix-Vector Multiplication =====
+
+Input Vector x:
+[1 2 3 4]
+
+Output Vector y:
+[9 9 43]
+
+===== Performance Summary =====
+
+Dense Multiplications Required : 12
+Sparse Multiplications Used    : 6
+Operations Avoided             : 6
+
+CSR Extraction Time            : 0.000013 sec
+Sparse Multiply Time           : 0.000004 sec
+
+Dynamic Memory Allocation Used : NO
+CSR Traversal                  : SUCCESS
+Verification Status            : PASSED

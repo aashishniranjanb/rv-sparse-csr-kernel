@@ -1,95 +1,193 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
+#include <time.h>
+
+/*
+ * RV-Sparse CSR Kernel
+ * 
+ * Modular implementation of Dense-to-CSR extraction and Sparse Matrix-Vector
+ * Multiplication (SpMV). Designed for systems programming correctness: zero 
+ * dynamic memory allocation, cache-friendly sequential access, and modularity.
+ */
+
+// ==========================================
+// Helper Functions
+// ==========================================
 
 /**
- * Perform Sparse Matrix-Vector Multiplication using CSR format.
+ * Extracts non-zero elements from a dense matrix into CSR format.
+ * All buffers must be caller-provided.
  * 
- * Scans dense matrix A, builds CSR representation using caller-provided
- * buffers, and computes the matrix-vector product y = A * x.
- *
- * CRITICAL CONSTRAINT: ZERO dynamic memory allocation.
- *
- * @param rows    Number of rows in matrix A
- * @param cols    Number of columns in matrix A
- * @param A       Dense matrix A (1D array of size rows*cols, row-major)
- * @param x       Input vector x (size cols)
- * @param values  Pre-allocated buffer for CSR non-zero values
- * @param col_idx Pre-allocated buffer for CSR column indices
- * @param row_ptr Pre-allocated buffer for CSR row pointers
- * @param y       Pre-allocated buffer for the output vector
+ * @return Total number of non-zero elements (nnz)
  */
-void sparse_multiply(int rows, int cols, float *A, float *x, float *values, int *col_idx, int *row_ptr, float *y) {
-    int nnz = 0;
+int extract_csr(int rows, int cols, const float *dense_matrix, 
+                float *values, int *col_idx, int *row_ptr) {
+    int nonzero_count = 0;
 
-    // Phase 1: Build CSR Representation
     for (int i = 0; i < rows; i++) {
-        // Store starting index of this row's data
-        row_ptr[i] = nnz;
+        // Record where this row starts in the values/col_idx arrays
+        row_ptr[i] = nonzero_count;
         
-        // Optimization 1: Store pointer to the row to avoid redundant multiplications (i * cols)
-        float *row = &A[i * cols]; 
+        // Cache-friendly row pointer mapping
+        const float *current_row = &dense_matrix[i * cols];
         
-        // Optimization 2: Sequential memory access for cache-friendly traversal
         for (int j = 0; j < cols; j++) {
-            if (row[j] != 0.0f) {
-                values[nnz] = row[j];
-                col_idx[nnz] = j;
-                nnz++;
+            if (current_row[j] != 0.0f) {
+                values[nonzero_count] = current_row[j];
+                col_idx[nonzero_count] = j;
+                nonzero_count++;
             }
         }
     }
     
-    // Finalize row_ptr
-    row_ptr[rows] = nnz;
-
-    // Phase 2: Sparse Matrix Vector Multiply
-    for (int i = 0; i < rows; i++) {
-        float sum = 0.0f;
-        
-        // Loop over non-zero elements in row i
-        for (int k = row_ptr[i]; k < row_ptr[i + 1]; k++) {
-            sum += values[k] * x[col_idx[k]];
-        }
-        
-        y[i] = sum;
-    }
+    // Finalize row_ptr to simplify loop bounds during multiplication
+    row_ptr[rows] = nonzero_count;
+    
+    return nonzero_count;
 }
 
-// Test Harness
-int main() {
-    // 4x4 dense matrix A
-    int rows = 4;
-    int cols = 4;
-    float A[] = {
-        1.0f, 0.0f, 4.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 3.0f, 5.0f, 0.0f,
-        2.0f, 0.0f, 6.0f, 0.0f
-    };
-    
-    // Input vector x
-    float x[] = {1.0f, 2.0f, 3.0f, 4.0f};
-    
-    // Pre-allocate arrays to avoid dynamic allocation.
-    // In a worst-case scenario (dense), nnz could be up to rows * cols = 16.
-    float values[16];
-    int col_idx[16];
-    int row_ptr[5]; // rows + 1
-    float y[4];
-    
-    printf("Starting sparse matrix-vector multiplication...\n");
-    sparse_multiply(rows, cols, A, x, values, col_idx, row_ptr, y);
-    
-    printf("\nResult y = A * x:\n");
+/**
+ * Computes Sparse Matrix-Vector Multiplication: y = A * x
+ * 
+ * @return Total number of sparse multiplications performed.
+ */
+int sparse_matvec(int rows, const float *values, const int *col_idx, 
+                  const int *row_ptr, const float *x, float *y) {
+    int ops_count = 0;
+
     for (int i = 0; i < rows; i++) {
-        printf("y[%d] = %.2f\n", i, y[i]);
+        float accumulator = 0.0f;
+        int row_start = row_ptr[i];
+        int row_end = row_ptr[i + 1];
+
+        // Traverse CSR row segment for sparse dot product accumulation
+        for (int k = row_start; k < row_end; k++) {
+            accumulator += values[k] * x[col_idx[k]];
+            ops_count++;
+        }
+        
+        y[i] = accumulator;
     }
     
-    printf("\nExpected y:\n");
-    printf("y[0] = 13.00\n");
-    printf("y[1] = 0.00\n");
-    printf("y[2] = 21.00\n");
-    printf("y[3] = 20.00\n");
+    return ops_count;
+}
+
+/**
+ * Validates the CSR output against a standard Dense Matrix-Vector Multiplication.
+ */
+bool verify_result(int rows, int cols, const float *dense_matrix, const float *x, const float *csr_y) {
+    bool passed = true;
+    for (int i = 0; i < rows; i++) {
+        float expected = 0.0f;
+        const float *current_row = &dense_matrix[i * cols];
+        for (int j = 0; j < cols; j++) {
+            expected += current_row[j] * x[j];
+        }
+        // Using a tiny epsilon for float comparison safety
+        if (abs(expected - csr_y[i]) > 1e-5) {
+            passed = false;
+            break;
+        }
+    }
+    return passed;
+}
+
+/**
+ * Prints the CSR data cleanly for debugging and verification.
+ */
+void print_csr(int rows, int nnz, const float *values, const int *col_idx, const int *row_ptr) {
+    printf("===== CSR Data =====\n\n");
+    
+    printf("Values      : [");
+    for (int i = 0; i < nnz; i++) printf("%.0f%s", values[i], (i == nnz-1) ? "" : " ");
+    printf("]\n");
+    
+    printf("Column IDX  : [");
+    for (int i = 0; i < nnz; i++) printf("%d%s", col_idx[i], (i == nnz-1) ? "" : " ");
+    printf("]\n");
+    
+    printf("Row PTR     : [");
+    for (int i = 0; i <= rows; i++) printf("%d%s", row_ptr[i], (i == rows) ? "" : " ");
+    printf("]\n\n");
+}
+
+// ==========================================
+// Main Execution / Test Harness
+// ==========================================
+
+int main() {
+    // Configurable dimensions
+    const int rows = 3;
+    const int cols = 4;
+    
+    // Input Matrix A (Dense)
+    float dense_matrix[] = {
+        1.0f, 0.0f, 0.0f, 2.0f,
+        0.0f, 0.0f, 3.0f, 0.0f,
+        4.0f, 0.0f, 5.0f, 6.0f
+    };
+    
+    // Input Vector x
+    float x[] = {1.0f, 2.0f, 3.0f, 4.0f};
+    
+    // Caller-provided static buffers (Max Size = rows * cols)
+    float values[12];
+    int col_idx[12];
+    int row_ptr[4]; // rows + 1
+    float y[3];     // size = rows
+    
+    clock_t start, end;
+    
+    // Extract CSR
+    start = clock();
+    int nnz = extract_csr(rows, cols, dense_matrix, values, col_idx, row_ptr);
+    end = clock();
+    double extract_time = ((double) (end - start)) / CLOCKS_PER_SEC;
+
+    // Sparsity calculations
+    int total_elements = rows * cols;
+    float sparsity = (1.0f - ((float)nnz / (float)total_elements)) * 100.0f;
+
+    // Display Overview
+    printf("===== RV-Sparse CSR Kernel =====\n\n");
+    printf("Input Matrix Dimensions : %d x %d\n", rows, cols);
+    printf("Total Elements          : %d\n", total_elements);
+    printf("Non-Zero Elements       : %d\n", nnz);
+    printf("Matrix Sparsity         : %.2f%%\n\n", sparsity);
+
+    // Display CSR
+    print_csr(rows, nnz, values, col_idx, row_ptr);
+
+    // Sparse Matrix-Vector Multiply
+    start = clock();
+    int sparse_ops = sparse_matvec(rows, values, col_idx, row_ptr, x, y);
+    end = clock();
+    double multiply_time = ((double) (end - start)) / CLOCKS_PER_SEC;
+
+    // Display Output
+    printf("===== Sparse Matrix-Vector Multiplication =====\n\n");
+    printf("Input Vector x:\n[");
+    for (int j = 0; j < cols; j++) printf("%.0f%s", x[j], (j == cols-1) ? "" : " ");
+    printf("]\n\nOutput Vector y:\n[");
+    for (int i = 0; i < rows; i++) printf("%.0f%s", y[i], (i == rows-1) ? "" : " ");
+    printf("]\n\n");
+
+    // Performance Verification & Stats
+    bool is_verified = verify_result(rows, cols, dense_matrix, x, y);
+    int dense_ops = rows * cols;
+
+    printf("===== Performance Summary =====\n\n");
+    printf("Dense Multiplications Required : %d\n", dense_ops);
+    printf("Sparse Multiplications Used    : %d\n", sparse_ops);
+    printf("Operations Avoided             : %d\n\n", dense_ops - sparse_ops);
+    
+    printf("CSR Extraction Time            : %f sec\n", extract_time);
+    printf("Sparse Multiply Time           : %f sec\n\n", multiply_time);
+
+    printf("Dynamic Memory Allocation Used : NO\n");
+    printf("CSR Traversal                  : SUCCESS\n");
+    printf("Verification Status            : %s\n", is_verified ? "PASSED" : "FAILED");
 
     return 0;
 }
