@@ -156,6 +156,17 @@ int main() {
     printf("Non-Zero Elements       : %d\n", nnz);
     printf("Matrix Sparsity         : %.2f%%\n\n", sparsity);
 
+    // Display Input Matrix (Dense)
+    printf("Input Matrix (Dense):\n");
+    for (int i = 0; i < rows; i++) {
+        printf("[ ");
+        for (int j = 0; j < cols; j++) {
+            printf("%.0f ", dense_matrix[i * cols + j]);
+        }
+        printf("]\n");
+    }
+    printf("\n");
+
     // Display CSR
     print_csr(rows, nnz, values, col_idx, row_ptr);
 
@@ -167,20 +178,24 @@ int main() {
 
     // Display Output
     printf("===== Sparse Matrix-Vector Multiplication =====\n\n");
-    printf("Input Vector x:\n[");
-    for (int j = 0; j < cols; j++) printf("%.0f%s", x[j], (j == cols-1) ? "" : " ");
-    printf("]\n\nOutput Vector y:\n[");
-    for (int i = 0; i < rows; i++) printf("%.0f%s", y[i], (i == rows-1) ? "" : " ");
+    printf("Input Vector x:\n[ ");
+    for (int j = 0; j < cols; j++) printf("%.0f ", x[j]);
+    printf("]\n\nOutput Vector y = A * x:\n[ ");
+    for (int i = 0; i < rows; i++) printf("%.0f ", y[i]);
     printf("]\n\n");
 
     // Performance Verification & Stats
     bool is_verified = verify_result(rows, cols, dense_matrix, x, y);
     int dense_ops = rows * cols;
+    int skipped = dense_ops - nnz;
+    float ratio = ((float)nnz / (float)dense_ops) * 100.0f;
 
     printf("===== Performance Summary =====\n\n");
     printf("Dense Multiplications Required : %d\n", dense_ops);
     printf("Sparse Multiplications Used    : %d\n", sparse_ops);
-    printf("Operations Avoided             : %d\n\n", dense_ops - sparse_ops);
+    printf("Operations Avoided             : %d\n", dense_ops - sparse_ops);
+    printf("Zero Elements Skipped          : %d\n", skipped);
+    printf("Useful Computation Ratio       : %.2f%%\n\n", ratio);
     
     printf("CSR Extraction Time            : %f sec\n", extract_time);
     printf("Sparse Multiply Time           : %f sec\n\n", multiply_time);

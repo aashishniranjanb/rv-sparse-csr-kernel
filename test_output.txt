@@ -5,25 +5,32 @@ Total Elements          : 12
 Non-Zero Elements       : 6
 Matrix Sparsity         : 50.00%
 
+Input Matrix (Dense):
+[ 1 0 0 2 ]
+[ 0 0 3 0 ]
+[ 4 0 5 6 ]
+
 ===== CSR Data =====
 
-Values      : [1 2 3 4 5 6]
+Values      : [1 2 4 3 5 6]
 Column IDX  : [0 3 2 0 2 3]
 Row PTR     : [0 2 3 6]
 
 ===== Sparse Matrix-Vector Multiplication =====
 
 Input Vector x:
-[1 2 3 4]
+[ 1 2 3 4 ]
 
-Output Vector y:
-[9 9 43]
+Output Vector y = A * x:
+[ 9 9 43 ]
 
 ===== Performance Summary =====
 
 Dense Multiplications Required : 12
 Sparse Multiplications Used    : 6
 Operations Avoided             : 6
+Zero Elements Skipped          : 6
+Useful Computation Ratio       : 50.00%
 
 CSR Extraction Time            : 0.000013 sec
 Sparse Multiply Time           : 0.000004 sec
